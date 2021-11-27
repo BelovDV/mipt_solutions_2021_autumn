@@ -35,41 +35,34 @@ private:
     std::vector<size_t> size_;
 };
 
-struct Edge {
-    int from, to;
-};
-
-void Solution() {
-}
-
 void Work() {
-    int n = 0;
-    int m = 0;
-    cin >> n >> m;
-    DSU dsu(n);
-    vector<int> sum(n, 0);
-    for (int i = 0; i < m; ++i) {
-        int code = 0;
-        cin >> code;
-        if (code == 1) {
-            int x = 0;
-            int y = 0;
-            int w = 0;
-            cin >> x >> y >> w;
-            int r_x = dsu.Root(x - 1);
-            int r_y = dsu.Root(y - 1);
-            if (r_x == r_y) {
-                sum[r_x] += w;
+    int vertex_count = 0;
+    int edges_count = 0;
+    cin >> vertex_count >> edges_count;
+    DSU dsu(vertex_count);
+    vector<int> component_sum(vertex_count, 0);
+    for (int i = 0; i < edges_count; ++i) {
+        int operation = 0;
+        cin >> operation;
+        if (operation == 1) {
+            int vert_1 = 0;
+            int vert_2 = 0;
+            int weight = 0;
+            cin >> vert_1 >> vert_2 >> weight;
+            int root_1 = dsu.Root(vert_1 - 1);
+            int root_2 = dsu.Root(vert_2 - 1);
+            if (root_1 == root_2) {
+                component_sum[root_1] += weight;
             } else {
-                int vsp = sum[r_x] + sum[r_y];
-                sum[r_x] = sum[r_y] = vsp;
-                dsu.Unite(r_x, r_y);
-                sum[dsu.Root(r_x)] += w;
+                int vsp = component_sum[root_1] + component_sum[root_2];
+                component_sum[root_1] = component_sum[root_2] = vsp;
+                dsu.Unite(root_1, root_2);
+                component_sum[dsu.Root(root_1)] += weight;
             }
         } else {
-            int x = 0;
-            cin >> x;
-            cout << sum[dsu.Root(x - 1)] << '\n';
+            int vertex = 0;
+            cin >> vertex;
+            cout << component_sum[dsu.Root(vertex - 1)] << '\n';
         }
     }
 }
