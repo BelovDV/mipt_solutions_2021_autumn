@@ -118,41 +118,30 @@ GraphListWeighted CinGraphListWeighted(bool zero_indexation) {
 }  // namespace graph
 
 namespace graph {
-class FordBellman {
-public:
-    explicit FordBellman(const GraphListWeighted& master) : master_(master) {
-    }
-
-public:
-    // without negative cycles
-    vector<Index> GetDistances(Index from) const {
-        vector<Index> result(master_.Size(), kWeightMax);
-        result[from] = 0;
-        for (size_t i = 0; i < master_.Size(); ++i) {
-            auto edge = master_.GetListEdges().begin();
-            auto weight = master_.GetListWeights().begin();
-            for (; edge != master_.GetListEdges().end(); ++edge, ++weight) {
-                if (result[edge->from] < kWeightMax) {
-                    if (result[edge->to] > result[edge->from] + *weight) {
-                        result[edge->to] = result[edge->from] + *weight;
-                    }
+// without negative cycles
+vector<Index> FordBellman(const GraphListWeighted& graph, Index from) {
+    vector<Index> result(graph.Size(), kWeightMax);
+    result[from] = 0;
+    for (size_t i = 0; i < graph.Size(); ++i) {
+        auto edge = graph.GetListEdges().begin();
+        auto weight = graph.GetListWeights().begin();
+        for (; edge != graph.GetListEdges().end(); ++edge, ++weight) {
+            if (result[edge->from] < kWeightMax) {
+                if (result[edge->to] > result[edge->from] + *weight) {
+                    result[edge->to] = result[edge->from] + *weight;
                 }
             }
         }
-        return result;
     }
-
-private:
-    const GraphListWeighted& master_;
-};
+    return result;
+}
 }  // namespace graph
 
 using std::vector;
 
 void Work() {
     auto graph_graph = graph::CinGraphListWeighted(false);
-    graph::FordBellman worker(graph_graph);
-    auto result = worker.GetDistances(0);
+    auto result = FordBellman(graph_graph, 0);
     for (auto it : result) {
         if (it == graph::kWeightMax) {
             cout << "30000\t";
