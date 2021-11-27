@@ -8,60 +8,76 @@ using std::cin;
 using std::cout;
 using std::vector;
 
-namespace graph {
-int64_t MinimalSpanningTree(const vector<vector<size_t>>& edges, const vector<vector<int64_t>>& weights) {
-    std::set<std::pair<int64_t, std::pair<size_t, size_t>>> set;
-    // weight ; (from, index in edges[from])
-    for (size_t index = 0; index < edges[0].size(); ++index) {
-        set.insert({weights[0][index], {0, index}});
+class Graph {
+    using Weight = int64_t;
+    using Index = size_t;
+
+public:
+    explicit Graph(size_t size) : edges_(size), weights_(size) {
     }
 
-    vector<size_t> visited(edges.size());
-    visited[0] = true;
+public:
+    void Link(Index from, Index to, int64_t weight) {
+        edges_[from].push_back(to);
+        weights_[from].push_back(weight);
+    }
+    Weight MinimalSpanningTree() const {
+        std::set<std::pair<Weight, std::pair<Index, Index>>> set;
+        // weight ; (from, index in edges[from])
+        auto f_weight = &std::pair<Weight, std::pair<Index, Index>>::first;
+        auto edge = &std::pair<Weight, std::pair<Index, Index>>::second;
+        auto f_from = &std::pair<Index, Index>::first;
+        auto f_index = &std::pair<Index, Index>::second;
+        for (size_t index = 0; index < edges_[0].size(); ++index) {
+            set.insert({weights_[0][index], {0, index}});
+        }
 
-    int64_t result = 0;
+        vector<Index> visited(edges_.size());
+        visited[0] = true;
 
-    size_t without_goto = 1;
-    while (without_goto < edges.size()) {
-        auto iter = set.begin();
-        size_t next = edges[iter->second.first][iter->second.second];
+        Weight result = 0;
 
-        if (visited[next]) {
+        size_t without_goto = 1;
+        while (without_goto < edges_.size()) {
+            auto iter = set.begin();
+            size_t next = edges_[*iter.*edge.*f_from][*iter.*edge.*f_index];
+
+            if (visited[next]) {
+                set.erase(iter);
+                continue;
+            }
+            ++without_goto;
+            visited[next] = true;
+            result += *iter.*f_weight;
             set.erase(iter);
-            continue;
-        }
-        // cout << iter->second.first << ' ' << next << '\n';
-        ++without_goto;
-        visited[next] = true;
-        result += iter->first;
-        set.erase(iter);
 
-        for (size_t index = 0; index < edges[next].size(); ++index) {
-            set.insert({weights[next][index], {next, index}});
+            for (size_t index = 0; index < edges_[next].size(); ++index) {
+                set.insert({weights_[next][index], {next, index}});
+            }
         }
+        return result;
     }
-    return result;
-}
-}  // namespace graph
+
+private:
+    vector<vector<Index>> edges_;
+    vector<vector<Weight>> weights_;
+};
 
 void Work() {
-    int n = 0;
-    int m = 0;
-    cin >> n >> m;
-    vector<vector<size_t>> edges(n);
-    vector<vector<int64_t>> weights(n);
-    while (m--) {
+    int vertex_count = 0;
+    int edges_count = 0;
+    cin >> vertex_count >> edges_count;
+    Graph g(vertex_count);
+    while (edges_count--) {
         int from = 0;
         int to = 0;
         int weight = 0;
         cin >> from >> to >> weight;
-        edges[from - 1].push_back(to - 1);
-        edges[to - 1].push_back(from - 1);
-        weights[from - 1].push_back(weight);
-        weights[to - 1].push_back(weight);
+        g.Link(from - 1, to - 1, weight);
+        g.Link(to - 1, from - 1, weight);
     }
 
-    cout << graph::MinimalSpanningTree(edges, weights) << '\n';
+    cout << g.MinimalSpanningTree() << '\n';
 }
 
 int main() {
