@@ -150,6 +150,11 @@ using std::cin;
 using std::cout;
 using std::vector;
 
+void link_row(Graph& g, int start, int count) {
+    for (int i = 0; i < count; ++i)
+        g.link(start + count, start + count + 1);
+}
+
 void work() {
     int count_vertexes, count_edges, from, to;
     cin >> count_vertexes >> count_edges >> from >> to;
@@ -162,10 +167,8 @@ void work() {
             g.link(from - 1, to - 1);
         else {
             g.link(from - 1, free_vertex);
-            for (int i = 2; i < weight; ++i) {
-                g.link(free_vertex, free_vertex + 1);
-                ++free_vertex;
-            }
+            link_row(g, free_vertex, weight - 2);
+            free_vertex += weight - 2;
             g.link(free_vertex++, to - 1);
         }
     }
