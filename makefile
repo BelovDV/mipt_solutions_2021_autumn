@@ -9,6 +9,7 @@ format:
 run:
 	g++ -g -std=c++17 -Wall -Wextra -pedantic -Werror -fsanitize=address,undefined -D MY *.cpp
 	cat in.txt | ./a.out
+# dot -Tpng graph -o graph.png
 
 all_old: clear run clean
 

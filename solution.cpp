@@ -2,6 +2,8 @@
 #include <iostream>
 #include <memory>
 #include <array>
+#include <map>
+#include <cassert>
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
@@ -12,18 +14,18 @@
 #else
 #define DEBUG
 int log_depth = 0;
-#define LOG_IN                                \
-    for (int i = 0; i < log_depth; ++i) {     \
-        std::cout << "  ";                    \
-    }                                         \
-    std::cout << __PRETTY_FUNCTION__ << '\n'; \
+#define LOG_IN                                                          \
+    for (int i = 0; i < log_depth; ++i) {                               \
+        std::cout << "      ";                                          \
+    }                                                                   \
+    std::cout << "\033[1m\033[4m" << __PRETTY_FUNCTION__ << "\033[m\n"; \
     ++log_depth;
 #define LOG_OUT --log_depth;
 #define LOG(var)                          \
     for (int i = 0; i < log_depth; ++i) { \
-        std::cout << "  ";                \
+        std::cout << "      ";            \
     }                                     \
-    std::cout << "LOG: " << __LINE__ << " \t" << #var << ": \t" << var << "\n";
+    std::cout << "LOG: " << __FILE__ << ':' << __LINE__ << " \t" << #var << ": \t" << var << "\n";
 #endif
 
 template <typename Cont, typename = typename std::enable_if_t<!std::is_same<Cont, std::string>::value>>
@@ -42,164 +44,144 @@ auto operator<<(std::ostream& out, const Cont& cont) -> decltype(cont.first, con
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
-class ITrieNode {
+class SuffixAutomaton {
 public:
+    using Index = unsigned;
     using Symbol = char;
     using String = std::string;
+    static const Index kNil = static_cast<Index>(-1);
+    static const Index kRoot = 0;
 
-public:
-    virtual ~ITrieNode() = default;
+private:
+    class Node {
+    public:
+        static const int kAlphaSize = 26;
 
-public:
-    virtual ITrieNode* Next(Symbol symbol) = 0;
-    virtual ITrieNode* Create(Symbol symbol, ITrieNode* suffix) = 0;
-    virtual ITrieNode* Suffix() = 0;
-    virtual size_t Depth() = 0;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class Trie {
-public:
-    using Symbol = ITrieNode::Symbol;
-    using String = ITrieNode::String;
-
-public:
-    explicit Trie(std::unique_ptr<ITrieNode>&& root) : root_(std::move(root)) {
-    }
-
-public:
-    bool Contain(const String& pattern) const {
-        ITrieNode* iter = root_.get();
-        for (auto symbol : pattern) {
-            if (!(iter->Next(symbol))) {
-                return false;
+    public:
+        explicit Node(Index length = 0) : length_(length), suffix_(kNil) {
+            for (auto& it : next_) {
+                it = kNil;
             }
-            iter = iter->Next(symbol);
         }
-        return true;
+
+    public:
+        bool Linked(Symbol direction) {
+            return next_[direction - 'a'] != kNil;
+        }
+        Index& Link(Symbol direction) {
+            return next_[direction - 'a'];
+        }
+
+    public:
+        bool endpos = false;
+        Index length_;
+        Index suffix_;
+        std::array<Index, kAlphaSize> next_;
+    };
+
+public:
+    explicit SuffixAutomaton(const String& base) {
+        data_[0].suffix_ = kNil;
+        for (const auto& it : base) {
+            Insert(it);
+        }
     }
 
-    bool Insert(const String& inserted) {
-        LOG_IN
-        ITrieNode* iter = root_.get();
-        bool was_inserted = false;
-        for (auto symbol : inserted) {
-            LOG(symbol)
-            if (!(iter->Next(symbol))) {
-                was_inserted = true;
-                iter->Create(symbol, Next(iter, symbol));
+public:
+    void InsertAdd(String::const_iterator begin, String::const_iterator end) {
+        for (auto iter = begin; iter != end; ++iter) {
+            Insert(*iter);
+        }
+    }
+
+    size_t MaxOverlapLength(const String& str) {
+        size_t length = 0;
+        Index state = 0;
+        size_t depth = 0;
+        for (const auto& dir : str) {
+            depth += 1;
+            if (data_[state].Linked(dir)) {
+                state = data_[state].Link(dir);
+                if (data_[state].endpos) {
+                    length = depth;
+                }
+            } else {
+                break;
             }
-            iter = iter->Next(symbol);
+        }
+        return length;
+    }
+
+    void Dump(const std::string& filename) {
+        auto file = fopen(filename.c_str(), "w");
+        fprintf(file, "digraph G {\nrankdir=LR;\n");
+        for (Index i = 0; i < data_.size(); ++i) {
+            if (data_[i].endpos) {
+                fprintf(file, " %u [shape=doublecircle]\n", i);
+            } else {
+                fprintf(file, " %u [shape=circle]\n", i);
+            }
+            for (Symbol dir = 'a'; dir <= 'z'; ++dir) {
+                if (data_[i].Linked(dir)) {
+                    fprintf(file, "\t%u->%u[label=%c]\n", i, data_[i].Link(dir), dir);
+                }
+            }
+            fprintf(file, "%u->%u[color=lightgray]\n", i, data_[i].suffix_);
+        }
+        fprintf(file, "}");
+        fclose(file);
+    }
+
+private:
+    void Insert(Symbol next) {
+        LOG_IN
+        LOG(next)
+        Index current = data_.size();
+        data_.emplace_back(data_[last_].length_ + 1);
+        for (auto iter = last_; iter != kNil; iter = data_[iter].suffix_) {
+            data_[iter].endpos = false;
+        }
+        Index iter = last_;
+        LOG(iter)
+        while (iter != kNil && !data_[iter].Linked(next)) {
+            data_[iter].Link(next) = current;
+            iter = data_[iter].suffix_;
+            LOG(iter)
+        }
+        if (iter == kNil) {
+            LOG(1)
+            data_[current].suffix_ = kRoot;
+        } else {
+            auto was_to = data_[iter].Link(next);
+            LOG(was_to)
+            LOG(data_[iter].length_)
+            LOG(data_[was_to].length_)
+            if (data_[iter].length_ + 1 == data_[was_to].length_) {
+                LOG(2)
+                data_[current].suffix_ = was_to;
+            } else {
+                LOG(3)
+                Index clone = data_.size();
+                data_.emplace_back(data_[iter].length_ + 1);
+                data_[clone].next_ = data_[was_to].next_;
+                data_[clone].suffix_ = data_[was_to].suffix_;
+                while (iter != kNil && data_[iter].Link(next) == was_to) {
+                    data_[iter].Link(next) = clone;
+                    iter = data_[iter].suffix_;
+                }
+                data_[was_to].suffix_ = data_[current].suffix_ = clone;
+            }
+        }
+        last_ = current;
+        for (iter = current; iter != kNil; iter = data_[iter].suffix_) {
+            data_[iter].endpos = true;
         }
         LOG_OUT
-        return was_inserted;
-    }
-
-    auto PrefixFunction(const String& pattern) {
-        LOG_IN
-        Insert(pattern);
-        LOG("start")
-        std::vector<size_t> result;
-        ITrieNode* iter = root_.get();
-        for (auto symbol : pattern) {
-            iter = iter->Next(symbol);
-            result.push_back(iter->Suffix()->Depth());
-        }
-        LOG_OUT
-        return result;
     }
 
 private:
-    ITrieNode* Next(ITrieNode* from, Symbol to) {
-        if (from->Next(to)) {
-            return from->Next(to);
-        }
-        if (from == root_.get()) {
-            return from;
-        }
-        return Next(from->Suffix(), to);
-    }
-
-private:
-    std::unique_ptr<ITrieNode> root_;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class Node : public ITrieNode {
-public:
-    explicit Node(size_t depth = 0) : depth_(depth) {
-    }
-
-    ~Node() override = default;
-
-public:
-    ITrieNode* Next(Symbol symbol) override {
-        return At(symbol).get();
-    }
-    ITrieNode* Create(Symbol symbol, ITrieNode* suffix) override {
-        At(symbol) = std::make_unique<Node>();
-        At(symbol)->depth_ = depth_ + 1;
-        At(symbol)->suffix_ = suffix;
-        return At(symbol).get();
-    }
-    ITrieNode* Suffix() override {
-        return suffix_;
-    }
-    size_t Depth() override {
-        return depth_;
-    }
-
-private:
-    std::unique_ptr<Node>& At(Symbol symbol) {
-#ifdef DEBUG
-        return next_.at(symbol - 'a');
-#else
-        return next_[symbol - 'a'];
-#endif
-    }
-
-private:
-    std::array<std::unique_ptr<Node>, 26> next_;
-    ITrieNode* suffix_;
-    size_t depth_;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class NodeLine : public ITrieNode {
-public:
-    explicit NodeLine(size_t depth = 0) : depth_(depth) {
-    }
-    ~NodeLine() override = default;
-
-public:
-    ITrieNode* Next(Symbol symbol) override {
-        if (symbol == direction_) {
-            return next_.get();
-        }
-        return nullptr;
-    }
-    ITrieNode* Create(Symbol symbol, ITrieNode* suffix) override {
-        direction_ = symbol;
-        next_ = std::make_unique<NodeLine>();
-        next_->depth_ = depth_ + 1;
-        next_->suffix_ = suffix;
-        return next_.get();
-    }
-    ITrieNode* Suffix() override {
-        return suffix_;
-    }
-    size_t Depth() override {
-        return depth_;
-    }
-
-private:
-    Symbol direction_;
-    std::unique_ptr<NodeLine> next_;
-    ITrieNode* suffix_;
-    size_t depth_;
+    std::vector<Node> data_ = std::vector<Node>(1);
+    Index last_ = 0;
 };
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
@@ -209,6 +191,23 @@ using std::cout;
 using std::vector;
 
 void WorkTrie() {
+    size_t input_size = 0;
+    cin >> input_size;
+    std::string input;
+    SuffixAutomaton state("");
+    std::string result;
+    for (size_t i = 0; i < input_size; ++i) {
+        cin >> input;
+        auto overlap = state.MaxOverlapLength(input);
+        auto begin = input.begin() + overlap;
+        auto end = input.end();
+        result += std::string(begin, end);
+        state.InsertAdd(begin, end);
+    }
+    cout << result << '\n';
+#ifdef MY
+    state.Dump("graph");
+#endif
 }
 
 int main() {
