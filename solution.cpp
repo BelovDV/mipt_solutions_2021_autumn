@@ -2,6 +2,7 @@
 #include <iostream>
 #include <memory>
 #include <array>
+#include <map>
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
@@ -14,16 +15,17 @@
 int log_depth = 0;
 #define LOG_IN                                \
     for (int i = 0; i < log_depth; ++i) {     \
-        std::cout << "  ";                    \
+        std::cout << "    ";                  \
     }                                         \
     std::cout << __PRETTY_FUNCTION__ << '\n'; \
     ++log_depth;
 #define LOG_OUT --log_depth;
-#define LOG(var)                          \
-    for (int i = 0; i < log_depth; ++i) { \
-        std::cout << "  ";                \
-    }                                     \
-    std::cout << "LOG: " << __LINE__ << " \t" << #var << ": \t" << var << "\n";
+#define LOG(var)                                   \
+    for (int i = 0; i < log_depth; ++i) {          \
+        std::cout << "    ";                       \
+    }                                              \
+    printf("LOG: %d '%20.20s': ", __LINE__, #var); \
+    std::cout << var << "\n";
 #endif
 
 template <typename Cont, typename = typename std::enable_if_t<!std::is_same<Cont, std::string>::value>>
@@ -42,164 +44,82 @@ auto operator<<(std::ostream& out, const Cont& cont) -> decltype(cont.first, con
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
-class ITrieNode {
+class Node {
 public:
     using Symbol = char;
-    using String = std::string;
+    static const size_t kNil = static_cast<size_t>(-1);
 
 public:
-    virtual ~ITrieNode() = default;
+    Node() = default;
 
 public:
-    virtual ITrieNode* Next(Symbol symbol) = 0;
-    virtual ITrieNode* Create(Symbol symbol, ITrieNode* suffix) = 0;
-    virtual ITrieNode* Suffix() = 0;
-    virtual size_t Depth() = 0;
+    Node Expand(Symbol dir, size_t dest) {
+        next_[dir] = dest;
+        return Node();
+    }
+    size_t Next(Symbol dir) {
+        return next_.count(dir) ? next_[dir] : kNil;
+    }
+
+private:
+    std::map<Symbol, size_t> next_;
+
+    // ===== //
+public:
+    size_t count_ = 0;
+    size_t cost_ = 0;
+    bool leaf_ = false;
 };
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
 class Trie {
 public:
-    using Symbol = ITrieNode::Symbol;
-    using String = ITrieNode::String;
+    using Symbol = Node::Symbol;
 
 public:
-    explicit Trie(std::unique_ptr<ITrieNode>&& root) : root_(std::move(root)) {
-    }
+    Trie() = default;
 
 public:
-    bool Contain(const String& pattern) const {
-        ITrieNode* iter = root_.get();
-        for (auto symbol : pattern) {
-            if (!(iter->Next(symbol))) {
-                return false;
-            }
-            iter = iter->Next(symbol);
-        }
-        return true;
-    }
-
-    bool Insert(const String& inserted) {
-        LOG_IN
-        ITrieNode* iter = root_.get();
+    template <typename Iter>
+    bool Insert(Iter begin, Iter end) {
         bool was_inserted = false;
-        for (auto symbol : inserted) {
-            LOG(symbol)
-            if (!(iter->Next(symbol))) {
+        state_ = 0;
+        for (auto iter = begin; iter != end; ++iter) {
+            if (!StateMove(*iter)) {
                 was_inserted = true;
-                iter->Create(symbol, Next(iter, symbol));
+                data_.push_back(Current().Expand(*iter, data_.size()));
+                StateMove(*iter);
             }
-            iter = iter->Next(symbol);
         }
-        LOG_OUT
         return was_inserted;
     }
 
-    auto PrefixFunction(const String& pattern) {
-        LOG_IN
-        Insert(pattern);
-        LOG("start")
-        std::vector<size_t> result;
-        ITrieNode* iter = root_.get();
-        for (auto symbol : pattern) {
-            iter = iter->Next(symbol);
-            result.push_back(iter->Suffix()->Depth());
+    Node& Current() {
+        return data_[state_];
+    }
+    void StateRoot() {
+        state_ = 0;
+    }
+    bool StateMove(Symbol dir) {
+        if (Current().Next(dir) == Node::kNil) {
+            return false;
         }
-        LOG_OUT
-        return result;
+        state_ = data_[state_].Next(dir);
+        return true;
     }
-
-private:
-    ITrieNode* Next(ITrieNode* from, Symbol to) {
-        if (from->Next(to)) {
-            return from->Next(to);
+    size_t StateGet() {
+        return state_;
+    }
+    bool StateSet(size_t state) {
+        if (state >= data_.size()) {
+            return false;
         }
-        if (from == root_.get()) {
-            return from;
-        }
-        return Next(from->Suffix(), to);
+        state_ = state;
+        return true;
     }
 
 private:
-    std::unique_ptr<ITrieNode> root_;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class Node : public ITrieNode {
-public:
-    explicit Node(size_t depth = 0) : depth_(depth) {
-    }
-
-    ~Node() override = default;
-
-public:
-    ITrieNode* Next(Symbol symbol) override {
-        return At(symbol).get();
-    }
-    ITrieNode* Create(Symbol symbol, ITrieNode* suffix) override {
-        At(symbol) = std::make_unique<Node>();
-        At(symbol)->depth_ = depth_ + 1;
-        At(symbol)->suffix_ = suffix;
-        return At(symbol).get();
-    }
-    ITrieNode* Suffix() override {
-        return suffix_;
-    }
-    size_t Depth() override {
-        return depth_;
-    }
-
-private:
-    std::unique_ptr<Node>& At(Symbol symbol) {
-#ifdef DEBUG
-        return next_.at(symbol - 'a');
-#else
-        return next_[symbol - 'a'];
-#endif
-    }
-
-private:
-    std::array<std::unique_ptr<Node>, 26> next_;
-    ITrieNode* suffix_;
-    size_t depth_;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class NodeLine : public ITrieNode {
-public:
-    explicit NodeLine(size_t depth = 0) : depth_(depth) {
-    }
-    ~NodeLine() override = default;
-
-public:
-    ITrieNode* Next(Symbol symbol) override {
-        if (symbol == direction_) {
-            return next_.get();
-        }
-        return nullptr;
-    }
-    ITrieNode* Create(Symbol symbol, ITrieNode* suffix) override {
-        direction_ = symbol;
-        next_ = std::make_unique<NodeLine>();
-        next_->depth_ = depth_ + 1;
-        next_->suffix_ = suffix;
-        return next_.get();
-    }
-    ITrieNode* Suffix() override {
-        return suffix_;
-    }
-    size_t Depth() override {
-        return depth_;
-    }
-
-private:
-    Symbol direction_;
-    std::unique_ptr<NodeLine> next_;
-    ITrieNode* suffix_;
-    size_t depth_;
+    size_t state_ = 0;
+    std::vector<Node> data_ = std::vector<Node>(1);
 };
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
@@ -208,7 +128,77 @@ using std::cin;
 using std::cout;
 using std::vector;
 
+#include <unordered_map>
+#include <set>
+
+std::string position;
+
+Trie trie;
+int foot;
+std::vector<size_t> payment;
+std::string best_string;
+size_t best_cost = UINT64_MAX;
+size_t length = 0;
+
+void CountCosts(size_t upper_payment) {
+    LOG_IN
+    LOG(position)
+    auto state = trie.StateGet();
+    auto count = trie.Current().count_;
+    for (char dir = '0'; dir < '0' + foot; ++dir) {
+        if (trie.StateMove(dir)) {
+            position.push_back(dir);
+            CountCosts(upper_payment + (count - trie.Current().count_) * payment[position.size() - 2]);
+            position.pop_back();
+            trie.StateSet(state);
+        } else {
+            auto cost = upper_payment + trie.Current().count_ * payment[position.size() - 1];
+            LOG(cost)
+            if (cost < best_cost) {
+                best_cost = cost;
+                best_string = position;
+                while (best_string.size() < length) {
+                    best_string.push_back(dir);
+                }
+            }
+            break;
+        }
+    }
+    LOG_OUT
+}
+
 void WorkTrie() {
+    size_t number_string = 0;
+    cin >> number_string >> length >> foot;
+    payment.resize(length);
+    for (auto& it : payment) {
+        cin >> it;
+    }
+    while (number_string--) {
+        std::string input;
+        cin >> input;
+        trie.Insert(input.begin(), input.end());
+        trie.StateRoot();
+        for (auto dir : input) {
+            trie.StateMove(dir);
+            trie.Current().count_ += 1;
+        }
+    }
+    for (char dir = '0'; dir < '0' + foot; ++dir) {
+        trie.StateRoot();
+        if (trie.StateMove(dir)) {
+            position.push_back(dir);
+            CountCosts(0);
+            position.pop_back();
+        } else {
+            while (length--) {
+                position.push_back(dir);
+            }
+            cout << position << '\n' << 0 << '\n';
+            return;
+        }
+    }
+    cout << best_string << '\n' << best_cost << '\n';
 }
 
 int main() {
