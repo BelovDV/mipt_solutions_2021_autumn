@@ -205,6 +205,7 @@ void WorkTrie() {
         state.InsertAdd(begin, end);
     }
     cout << result << '\n';
+
 #ifdef MY
     state.Dump("graph");
 #endif
