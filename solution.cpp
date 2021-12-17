@@ -51,15 +51,19 @@ public:
     static const size_t kNil = static_cast<size_t>(-1);
 
 public:
-    Node() = default;
+    Node() {
+        for (auto& it : next_) {
+            it = kNil;
+        }
+    }
 
 public:
     Node Expand(Symbol dir, size_t dest) {
-        next_[dir] = dest;
+        next_[dir - 'a'] = dest;
         return Node();
     }
     size_t Next(Symbol dir) {
-        return next_.count(dir) ? next_[dir] : kNil;
+        return next_[dir - 'a'];
     }
     void SetSuffix(size_t dest) {
         suffix_ = dest;
@@ -72,7 +76,8 @@ public:
     }
 
 private:
-    std::map<Symbol, size_t> next_;
+    // std::map<Symbol, size_t> next_;
+    std::array<size_t, 26> next_;
     size_t suffix_ = 0;
 
     // ===== //
@@ -109,9 +114,11 @@ public:
         std::vector<size_t> storage;
         while (!current.empty()) {
             for (auto cur : current) {
-                for (auto next : data_[cur].AllNext()) {
-                    auto updated = next.second;
-                    auto dir = next.first;
+                for (Symbol dir = 'a'; dir <= 'z'; ++dir) {
+                    auto updated = data_[cur].AllNext()[dir - 'a'];
+                    if (updated == Node::kNil) {
+                        continue;
+                    }
                     storage.push_back(updated);
                     auto iter = data_[cur].Suffix();
                     while (iter != Node::kNil && data_[iter].Next(dir) == Node::kNil) {
