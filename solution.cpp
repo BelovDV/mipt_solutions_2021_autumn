@@ -2,6 +2,8 @@
 #include <iostream>
 #include <memory>
 #include <array>
+#include <map>
+#include <cassert>
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
@@ -14,16 +16,18 @@
 int log_depth = 0;
 #define LOG_IN                                \
     for (int i = 0; i < log_depth; ++i) {     \
-        std::cout << "  ";                    \
+        std::cout << "    ";                  \
     }                                         \
     std::cout << __PRETTY_FUNCTION__ << '\n'; \
     ++log_depth;
 #define LOG_OUT --log_depth;
-#define LOG(var)                          \
-    for (int i = 0; i < log_depth; ++i) { \
-        std::cout << "  ";                \
-    }                                     \
-    std::cout << "LOG: " << __LINE__ << " \t" << #var << ": \t" << var << "\n";
+#define LOG(var)                                                \
+    for (int i = 0; i < log_depth; ++i) {                       \
+        std::cout << "    ";                                    \
+    }                                                           \
+    std::cout << "LOG: " << __FILE__ << ':' << __LINE__ << " "; \
+    printf("%20.20s", #var);                                    \
+    std::cout << ": \t" << var << "\n";
 #endif
 
 template <typename Cont, typename = typename std::enable_if_t<!std::is_same<Cont, std::string>::value>>
@@ -41,165 +45,152 @@ auto operator<<(std::ostream& out, const Cont& cont) -> decltype(cont.first, con
 }
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class ITrieNode {
+class Node {
 public:
     using Symbol = char;
-    using String = std::string;
+    static const size_t kNil = static_cast<size_t>(-1);
 
 public:
-    virtual ~ITrieNode() = default;
+    Node() = default;
 
 public:
-    virtual ITrieNode* Next(Symbol symbol) = 0;
-    virtual ITrieNode* Create(Symbol symbol, ITrieNode* suffix) = 0;
-    virtual ITrieNode* Suffix() = 0;
-    virtual size_t Depth() = 0;
+    Node Expand(Symbol dir, size_t dest) {
+        next_[dir] = dest;
+        return Node();
+    }
+    size_t Next(Symbol dir) {
+        return next_.count(dir) ? next_[dir] : kNil;
+    }
+    void SetSuffix(size_t dest) {
+        suffix_ = dest;
+    }
+    size_t Suffix() {
+        return suffix_;
+    }
+    const auto& AllNext() {
+        return next_;
+    }
+
+private:
+    std::map<Symbol, size_t> next_;
+    size_t suffix_ = 0;
+
+    // ===== //
+public:
+    std::vector<size_t> ends_;
 };
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
 
 class Trie {
 public:
-    using Symbol = ITrieNode::Symbol;
-    using String = ITrieNode::String;
+    using Symbol = Node::Symbol;
 
 public:
-    explicit Trie(std::unique_ptr<ITrieNode>&& root) : root_(std::move(root)) {
+    Trie() {
+        Current().SetSuffix(Node::kNil);
     }
 
 public:
-    bool Contain(const String& pattern) const {
-        ITrieNode* iter = root_.get();
-        for (auto symbol : pattern) {
-            if (!(iter->Next(symbol))) {
-                return false;
-            }
-            iter = iter->Next(symbol);
-        }
-        return true;
-    }
-
-    bool Insert(const String& inserted) {
-        LOG_IN
-        ITrieNode* iter = root_.get();
+    template <typename Iter>
+    bool Insert(Iter begin, Iter end) {
         bool was_inserted = false;
-        for (auto symbol : inserted) {
-            LOG(symbol)
-            if (!(iter->Next(symbol))) {
+        state_ = 0;
+        for (auto iter = begin; iter != end; ++iter) {
+            if (!StateMove(*iter)) {
                 was_inserted = true;
-                iter->Create(symbol, Next(iter, symbol));
+                data_.push_back(Current().Expand(*iter, data_.size()));
+                StateMove(*iter);
             }
-            iter = iter->Next(symbol);
         }
-        LOG_OUT
         return was_inserted;
     }
 
-    auto PrefixFunction(const String& pattern) {
-        LOG_IN
-        Insert(pattern);
-        LOG("start")
-        std::vector<size_t> result;
-        ITrieNode* iter = root_.get();
-        for (auto symbol : pattern) {
-            iter = iter->Next(symbol);
-            result.push_back(iter->Suffix()->Depth());
+    void RecalculateSuffixes() {
+        std::vector<size_t> current(1, 0);
+        std::vector<size_t> storage;
+        while (!current.empty()) {
+            for (auto cur : current) {
+                for (auto next : data_[cur].AllNext()) {
+                    auto updated = next.second;
+                    auto dir = next.first;
+                    storage.push_back(updated);
+                    auto iter = data_[cur].Suffix();
+                    while (iter != Node::kNil && data_[iter].Next(dir) == Node::kNil) {
+                        iter = data_[iter].Suffix();
+                    }
+                    if (iter == Node::kNil) {
+                        data_[updated].SetSuffix(0);
+                    } else {
+                        data_[updated].SetSuffix(data_[iter].Next(dir));
+                    }
+                }
+            }
+            std::swap(storage, current);
+            storage.clear();
         }
-        LOG_OUT
-        return result;
     }
 
-private:
-    ITrieNode* Next(ITrieNode* from, Symbol to) {
-        if (from->Next(to)) {
-            return from->Next(to);
+    Node& Current() {
+        return data_[state_];
+    }
+    void StateRoot() {
+        state_ = 0;
+    }
+    bool StateMove(size_t& state, Symbol dir) {
+        if (data_[state].Next(dir) == Node::kNil) {
+            return false;
         }
-        if (from == root_.get()) {
-            return from;
+        state = data_[state].Next(dir);
+        return true;
+    }
+    bool StateMove(Symbol dir) {
+        return StateMove(state_, dir);
+    }
+    bool StateMoveSuffix(size_t& state) {
+        if (data_[state].Suffix() == Node::kNil) {
+            return false;
         }
-        return Next(from->Suffix(), to);
+        state = data_[state].Suffix();
+        return true;
     }
-
-private:
-    std::unique_ptr<ITrieNode> root_;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class Node : public ITrieNode {
-public:
-    explicit Node(size_t depth = 0) : depth_(depth) {
+    bool StateMoveSuffix() {
+        return StateMoveSuffix(state_);
     }
-
-    ~Node() override = default;
-
-public:
-    ITrieNode* Next(Symbol symbol) override {
-        return At(symbol).get();
+    size_t StateGet() {
+        return state_;
     }
-    ITrieNode* Create(Symbol symbol, ITrieNode* suffix) override {
-        At(symbol) = std::make_unique<Node>();
-        At(symbol)->depth_ = depth_ + 1;
-        At(symbol)->suffix_ = suffix;
-        return At(symbol).get();
-    }
-    ITrieNode* Suffix() override {
-        return suffix_;
-    }
-    size_t Depth() override {
-        return depth_;
-    }
-
-private:
-    std::unique_ptr<Node>& At(Symbol symbol) {
-#ifdef DEBUG
-        return next_.at(symbol - 'a');
-#else
-        return next_[symbol - 'a'];
-#endif
-    }
-
-private:
-    std::array<std::unique_ptr<Node>, 26> next_;
-    ITrieNode* suffix_;
-    size_t depth_;
-};
-
-// ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
-
-class NodeLine : public ITrieNode {
-public:
-    explicit NodeLine(size_t depth = 0) : depth_(depth) {
-    }
-    ~NodeLine() override = default;
-
-public:
-    ITrieNode* Next(Symbol symbol) override {
-        if (symbol == direction_) {
-            return next_.get();
+    bool StateSet(size_t state) {
+        if (state >= data_.size()) {
+            return false;
         }
-        return nullptr;
+        state_ = state;
+        return true;
     }
-    ITrieNode* Create(Symbol symbol, ITrieNode* suffix) override {
-        direction_ = symbol;
-        next_ = std::make_unique<NodeLine>();
-        next_->depth_ = depth_ + 1;
-        next_->suffix_ = suffix;
-        return next_.get();
+    Node& Get(size_t state) {
+        return data_[state];
     }
-    ITrieNode* Suffix() override {
-        return suffix_;
-    }
-    size_t Depth() override {
-        return depth_;
+    void Dump(const std::string& filename) {
+        auto file = fopen(filename.c_str(), "w");
+        fprintf(file, "digraph G {\nrankdir=LR;\n");
+        for (size_t i = 0; i < data_.size(); ++i) {
+            if (!data_[i].ends_.empty()) {
+                fprintf(file, " %lu [shape=doublecircle]\n", i);
+            } else {
+                fprintf(file, " %lu [shape=circle]\n", i);
+            }
+            for (Symbol dir = 'a'; dir <= 'z'; ++dir) {
+                if (data_[i].Next(dir) != Node::kNil) {
+                    fprintf(file, "\t%lu->%lu[label=%c]\n", i, data_[i].Next(dir), dir);
+                }
+            }
+            fprintf(file, "%lu->%lu[color=lightgray]\n", i, data_[i].Suffix());
+        }
+        fprintf(file, "}");
+        fclose(file);
     }
 
 private:
-    Symbol direction_;
-    std::unique_ptr<NodeLine> next_;
-    ITrieNode* suffix_;
-    size_t depth_;
+    size_t state_ = 0;
+    std::vector<Node> data_ = std::vector<Node>(1);
 };
 
 // ===== // ===== // ===== // ===== // ===== // ===== // ===== // ===== //
@@ -209,6 +200,47 @@ using std::cout;
 using std::vector;
 
 void WorkTrie() {
+    std::string text;
+    cin >> text;
+    size_t input_size = 0;
+    cin >> input_size;
+    std::vector<std::string> input(input_size);
+    auto trie = Trie();
+    for (size_t i = 0; i < input_size; ++i) {
+        cin >> input[i];
+        trie.Insert(input[i].begin(), input[i].end());
+        trie.Current().ends_.push_back(i);
+    }
+    trie.RecalculateSuffixes();
+
+#ifdef MY
+    trie.Dump("graph");
+#endif
+
+    std::vector<std::vector<size_t>> occurs(input_size);
+    size_t state = 0;
+    for (size_t position = 0; position < text.size(); ++position) {
+        while (!trie.StateMove(state, text[position])) {
+            if (!trie.StateMoveSuffix(state)) {
+                state = 0;
+                break;
+            }
+        }
+        LOG(state)
+        auto iter = state;
+        do {
+            for (auto number : trie.Get(iter).ends_) {
+                occurs[number].emplace_back(position + 1 - input[number].size());
+            }
+        } while (trie.StateMoveSuffix(iter));
+    }
+    for (const auto& pattern : occurs) {
+        cout << pattern.size() << ' ';
+        for (auto it : pattern) {
+            cout << it + 1 << ' ';
+        }
+        cout << '\n';
+    }
 }
 
 int main() {
